@@ -81,6 +81,7 @@ target_sources(${PROJECT_NAME}.elf
         #${CMAKE_CURRENT_SOURCE_DIR}/OLED/Src/driver_i2c.c
         ${CMAKE_CURRENT_SOURCE_DIR}/OLED/Src/driver_ssd1306.c
         ${CMAKE_CURRENT_SOURCE_DIR}/WS2812/WS2812.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/DS1302/DS1302.c
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/delay/delay.h
         ${CMAKE_CURRENT_SOURCE_DIR}/user_main/user_main.h
@@ -88,6 +89,7 @@ target_sources(${PROJECT_NAME}.elf
         ${CMAKE_CURRENT_SOURCE_DIR}/OLED/Inc/driver_ssd1306.h
         ${CMAKE_CURRENT_SOURCE_DIR}/OLED/Inc/oledfont.h
         ${CMAKE_CURRENT_SOURCE_DIR}/WS2812/WS2812.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/DS1302/DS1302.h
 )
 
 target_include_directories(${PROJECT_NAME}.elf
@@ -97,6 +99,7 @@ target_include_directories(${PROJECT_NAME}.elf
         ${CMAKE_CURRENT_SOURCE_DIR}/OLED/Inc
         ${CMAKE_CURRENT_SOURCE_DIR}/OLED/Src
         ${CMAKE_CURRENT_SOURCE_DIR}/WS2812
+        ${CMAKE_CURRENT_SOURCE_DIR}/DS1302
 )
 
 target_link_options(${PROJECT_NAME}.elf PRIVATE

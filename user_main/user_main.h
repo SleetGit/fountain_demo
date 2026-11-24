@@ -14,6 +14,8 @@ void user_main_init();
 void run();
 void OLED_Updata_Voltage(void);
 void OLED_Updata_light(void);
+void OLED_Updata_Date(void);
+void OLED_Updata_Time(void);
 void OLED_Updata(void);
 void WS2812_Updata(void);
 

@@ -14,6 +14,9 @@ uint32_t voltage_mv = 0; // 电压值，单位毫伏 (例如 3300 表示 3.300V)
 uint16_t adc_dma_buffer[ADC_BUFFER_SIZE] = {0}; // DMA 接收缓冲区，存放 ADC 原始值
 uint32_t max_adc_2s = 0; // 记录这 2 秒内的最大 ADC 原始值
 uint32_t light = 0;
+DS1302_Time_t now_time = {2026, 11, 24, 2, 18, 0, 0};  // DS1302 当前时间快照（屏上所有内容都只来自它）
+volatile uint8_t flag_1s = 0;                          // 1 秒到点标志（中断里置位，主循环清零）
+uint8_t rtc_status = DS1302_OK;                        // DS1302_OK / DS1302_ERR_UNSTABLE / DS1302_ERR_BAD_BCD
 
 
 /**
@@ -33,6 +36,10 @@ int user_main()
 
 void run()
 {
+    if (flag_1s == 1) {          // 每秒同步一次 RTC（读一次约 1ms，不适合放中断里）
+        flag_1s = 0;
+        rtc_status = DS1302_GetTime(&now_time);
+    }
     OLED_Updata();
 }
 /**
@@ -54,6 +61,8 @@ void OLED_Updata(void)
     OLED_Clear(0x00);
     OLED_Updata_Voltage();
     OLED_Updata_light();
+    OLED_Updata_Date();
+    OLED_Updata_Time();
     OLED_Refresh_Gram();
 }
 void OLED_Updata_Voltage(void)
@@ -72,12 +81,67 @@ void OLED_Updata_light(void)
     OLED_DrawStr(0, 16, (uint8_t *)"Light:", MEDIUM, 0);
     OLED_DrawNum(48, 16, light, MEDIUM, 0);
 }
+/**
+ * @brief  显示日期行：Date:26-11-24
+ * @note   MEDIUM 字体 8 像素宽，"Date:" 占 x=0~39，
+ *         后面三组两位数字落在 48 / 72 / 96，分隔符在 64 / 88，总宽 112 < 128
+ */
+void OLED_Updata_Date(void)
+{
+    OLED_DrawStr(0, 32, (uint8_t *)"Date:", MEDIUM, 0);
+    OLED_DrawNum0(48, 32, now_time.year % 100, MEDIUM, 0);
+    OLED_DrawChar(64, 32, '-', MEDIUM, 0);
+    OLED_DrawNum0(72, 32, now_time.month, MEDIUM, 0);
+    OLED_DrawChar(88, 32, '-', MEDIUM, 0);
+    OLED_DrawNum0(96, 32, now_time.day, MEDIUM, 0);
+}
+/**
+ * @brief  显示时间行：Time:18:05:30
+ * @note   秒位同时兼任状态指示：
+ *           正常        -> 显示秒数
+ *           -- (不稳定) -> 连读三次都不一致，总线接触不良
+ *           ## (非法BCD) -> 芯片里是坏 BCD，计数器已经失效
+ */
+void OLED_Updata_Time(void)
+{
+    OLED_DrawStr(0, 48, (uint8_t *)"Time:", MEDIUM, 0);
+    OLED_DrawNum0(48, 48, now_time.hour, MEDIUM, 0);
+    OLED_DrawChar(64, 48, ':', MEDIUM, 0);
+    OLED_DrawNum0(72, 48, now_time.minute, MEDIUM, 0);
+    OLED_DrawChar(88, 48, ':', MEDIUM, 0);
+
+    if (rtc_status == DS1302_OK) {
+        OLED_DrawNum0(96, 48, now_time.second, MEDIUM, 0);
+    } else if (rtc_status == DS1302_ERR_UNSTABLE) {
+        OLED_DrawChar(96, 48, '-', MEDIUM, 0);
+        OLED_DrawChar(104, 48, '-', MEDIUM, 0);
+    } else {
+        OLED_DrawChar(96, 48, '#', MEDIUM, 0);
+        OLED_DrawChar(104, 48, '#', MEDIUM, 0);
+    }
+}
 
 void user_main_init()
 {
     HAL_TIM_Base_Start_IT(&htim4);
     OLED_Init();
-    delay_init(72);
+    delay_init(72);              // DS1302 的位操作延时依赖它，必须排在 DS1302_Init() 前面
+
+    // ---------------- DS1302 实时时钟 ----------------
+    DS1302_Init();
+
+    DS1302_Time_t default_time = {2026, 11, 24, 2, 18, 0, 0}; // 年/月/日/星期/时/分/秒
+    uint8_t st = DS1302_GetTime(&now_time);
+
+    // 两种情况要重写一次默认时间：
+    //   1) 时钟停振（CH=1）：第一次上电 / 换过电池；
+    //   2) 寄存器里是非法 BCD：芯片内部计数器已经失效，不重写永远不会恢复。
+    if (DS1302_IsHalted() || (st == DS1302_ERR_BAD_BCD)) {
+        (void)DS1302_SetTime(&default_time);    // 内部会读回校验
+        st = DS1302_GetTime(&now_time);
+    }
+    rtc_status = st;
+
     HAL_ADCEx_Calibration_Start(&hadc1);
     HAL_ADC_Start_DMA(&hadc1, (uint32_t *) adc_dma_buffer, ADC_BUFFER_SIZE);
 }
@@ -113,6 +177,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
             voltage_mv = (max_adc_2s * 3300) / 4095;
             // 清零，开始记录下一秒的最高电平
             max_adc_2s = 0;
+            // 通知主循环：该去读一次 RTC 了（读 DS1302 要 1ms 左右，放中断里不合适）
+            flag_1s = 1;
         }
 
         // 计数器每 2 秒归零：既防止一直累加，也保证 % 取模的循环点固定
