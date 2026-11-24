@@ -36,10 +36,11 @@ int user_main()
 
 void run()
 {
-    if (flag_1s == 1) {          // 每秒同步一次 RTC（读一次约 1ms，不适合放中断里）
-        flag_1s = 0;
-        rtc_status = DS1302_GetTime(&now_time);
-    }
+    // 【暂停 DS1302】模块还没到，先把读取关掉；硬件到了把下面 4 行的 // 去掉即可
+    // if (flag_1s == 1) {          // 每秒同步一次 RTC（读一次约 1ms，不适合放中断里）
+    //     flag_1s = 0;
+    //     rtc_status = DS1302_GetTime(&now_time);
+    // }
     OLED_Updata();
 }
 /**
@@ -61,8 +62,9 @@ void OLED_Updata(void)
     OLED_Clear(0x00);
     OLED_Updata_Voltage();
     OLED_Updata_light();
-    OLED_Updata_Date();
-    OLED_Updata_Time();
+    // 【暂停 DS1302】日期/时间两行先不画（数据是空的），硬件到了把下面两行注释去掉
+    // OLED_Updata_Date();
+    // OLED_Updata_Time();
     OLED_Refresh_Gram();
 }
 void OLED_Updata_Voltage(void)
@@ -128,19 +130,20 @@ void user_main_init()
     delay_init(72);              // DS1302 的位操作延时依赖它，必须排在 DS1302_Init() 前面
 
     // ---------------- DS1302 实时时钟 ----------------
-    DS1302_Init();
-
-    DS1302_Time_t default_time = {2026, 11, 24, 2, 18, 0, 0}; // 年/月/日/星期/时/分/秒
-    uint8_t st = DS1302_GetTime(&now_time);
-
-    // 两种情况要重写一次默认时间：
-    //   1) 时钟停振（CH=1）：第一次上电 / 换过电池；
-    //   2) 寄存器里是非法 BCD：芯片内部计数器已经失效，不重写永远不会恢复。
-    if (DS1302_IsHalted() || (st == DS1302_ERR_BAD_BCD)) {
-        (void)DS1302_SetTime(&default_time);    // 内部会读回校验
-        st = DS1302_GetTime(&now_time);
-    }
-    rtc_status = st;
+    // 【暂停 DS1302】模块还没到，整段先关掉；硬件到了把下面所有行的 // 去掉即可
+    // DS1302_Init();
+    //
+    // DS1302_Time_t default_time = {2026, 11, 24, 2, 18, 0, 0}; // 年/月/日/星期/时/分/秒
+    // uint8_t st = DS1302_GetTime(&now_time);
+    //
+    // // 两种情况要重写一次默认时间：
+    // //   1) 时钟停振（CH=1）：第一次上电 / 换过电池；
+    // //   2) 寄存器里是非法 BCD：芯片内部计数器已经失效，不重写永远不会恢复。
+    // if (DS1302_IsHalted() || (st == DS1302_ERR_BAD_BCD)) {
+    //     (void)DS1302_SetTime(&default_time);    // 内部会读回校验
+    //     st = DS1302_GetTime(&now_time);
+    // }
+    // rtc_status = st;
 
     HAL_ADCEx_Calibration_Start(&hadc1);
     HAL_ADC_Start_DMA(&hadc1, (uint32_t *) adc_dma_buffer, ADC_BUFFER_SIZE);
@@ -177,8 +180,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
             voltage_mv = (max_adc_2s * 3300) / 4095;
             // 清零，开始记录下一秒的最高电平
             max_adc_2s = 0;
-            // 通知主循环：该去读一次 RTC 了（读 DS1302 要 1ms 左右，放中断里不合适）
-            flag_1s = 1;
+            // 【暂停 DS1302】模块到了把下面这行注释去掉（它负责每秒置一次 flag_1s）
+            // flag_1s = 1;
         }
 
         // 计数器每 2 秒归零：既防止一直累加，也保证 % 取模的循环点固定
