@@ -14,12 +14,15 @@ uint32_t voltage_mv = 0; // 电压值，单位毫伏 (例如 3300 表示 3.300V)
 uint16_t adc_dma_buffer[ADC_BUFFER_SIZE] = {0}; // DMA 接收缓冲区，存放 ADC 原始值
 uint32_t max_adc_2s = 0; // 记录这 2 秒内的最大 ADC 原始值
 uint32_t light = 0;
-DS1302_Time_t now_time = {2026, 11, 24, 2, 18, 0, 0};  // DS1302 当前时间快照（屏上所有内容都只来自它）
+// 【要改时间就改这一行】字段顺序：年, 月, 日, 星期, 时, 分, 秒
+//   · 当 DS1302_SET_TIME_ON_BOOT = 1 时，它就是"要写进芯片的时间"；
+//   · 平时它是读回来之后的当前时间快照（OLED 显示的就是它）。
+DS1302_Time_t now_time = {2026, 11, 24, 2, 18, 0, 0};
 volatile uint8_t flag_1s = 0;                          // 1 秒到点标志（中断里置位，主循环清零）
 uint8_t rtc_status = DS1302_OK;                        // DS1302_OK / DS1302_ERR_UNSTABLE / DS1302_ERR_BAD_BCD
 
 /* ---------------- 【改时间就用这里，两步走】 ----------------
- *  1) 把下面宏改成 1，并把 user_main_init() 里的 time_to_set 改成你要的时间，烧录一次；
+ *  1) 把下面宏改成 1，并把文件上方 now_time 那一行的初值改成你要的时间，烧录一次；
  *  2) 把宏改回 0，再烧录一次。
  *  之后就再也不写时间了，DS1302 自己走：
  *     · 板子不断电 -> 一直走；
@@ -141,11 +144,10 @@ void user_main_init()
     DS1302_Init();
 
 #if DS1302_SET_TIME_ON_BOOT
-    // 【写时间】只在这段里写。烧完把开头那个宏改回 0，再烧一次就完事
-    {
-        DS1302_Time_t time_to_set = {2026, 11, 24, 2, 21, 50, 0}; // 年/月/日/星期/时/分/秒
-        (void)DS1302_SetTime(&time_to_set);   // 内部会读回校验；写不进去屏上秒位会显示 ##
-    }
+    // 【写时间】把上面 now_time 的初值写进芯片。
+    // 烧完把开头那个宏改回 0，再烧一次就完事。
+    // 注意顺序：必须先写、后读 —— 下面的 GetTime 会把 now_time 覆盖成芯片里的真实时间。
+    (void)DS1302_SetTime(&now_time);   // 内部会读回校验；写不进去屏上秒位会显示 ##
 #endif
 
     rtc_status = DS1302_GetTime(&now_time);   // 先读一次，避免开机第一秒显示空值
