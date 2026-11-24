@@ -49,9 +49,14 @@ int user_main()
 
 void run()
 {
-    if (flag_1s == 1) {          // 每秒同步一次 RTC（读一次约 1ms，不适合放中断里）
+    if (flag_1s == 1) {          // 每秒同步一次 RTC（降速后读一次约 6ms，不适合放中断里）
         flag_1s = 0;
-        rtc_status = DS1302_GetTime(&now_time);
+        DS1302_Time_t fresh;
+        uint8_t st = DS1302_GetTime(&fresh);
+        rtc_status = st;
+        if (st == DS1302_OK) {
+            now_time = fresh;    // 只有读稳了才更新；读到坏数据就保持上一次的好值，屏上显示 --
+        }
     }
     OLED_Updata();
 }
@@ -69,6 +74,7 @@ void WS2812_Updata(void)
     }
     WS2812_Show();                 // 发射数据！
 }
+
 void OLED_Updata(void)
 {
     OLED_Clear(0x00);

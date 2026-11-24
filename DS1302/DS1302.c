@@ -23,8 +23,12 @@
 #define DS1302_DAT_L()     HAL_GPIO_WritePin(DS1302_DAT_PORT,  DS1302_DAT_PIN,  GPIO_PIN_RESET)
 #define DS1302_DAT_READ()  HAL_GPIO_ReadPin(DS1302_DAT_PORT,   DS1302_DAT_PIN)
 
-// SCLK 每半个周期保持多久(us)：1us -> 约 250kHz，DS1302 上限 2MHz，留足余量
-#define DS1302_DELAY_US    1
+// SCLK 每半个周期保持多久(us)：这个值是抗干扰的关键。
+//   DS1302 本身是静态器件，没有最低时钟频率要求，所以可以放心降速。
+//     1  -> 约 250kHz，杜邦线短(<10cm)时没问题，长线容易乱码
+//     10 -> 约 25kHz，长杜邦线/接触一般时的推荐值（当前）
+//     50 -> 约 5kHz，线特别烂/接触不良时的保底值
+#define DS1302_HALF_US     10
 
 // DS1302 要求的三个传输间隔(us)
 #define DS1302_T_CC_US     4    // CE 拉高 -> 第一个 SCLK
@@ -70,7 +74,9 @@ static void DS1302_DatIn(void)
 
     GPIO_InitStruct.Pin  = DS1302_DAT_PIN;
     GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;     // 读的时候由 DS1302 主动驱动
+    // 用内部上拉：读的时候虽然由 DS1302 主动驱动，但切换方向的那几微秒总线是浮空的，
+    // 有上拉就能保证它是确定的"高"，不会浮出一个假的低电平被当成数据位收进来。
+    GPIO_InitStruct.Pull = GPIO_PULLUP;
     HAL_GPIO_Init(DS1302_DAT_PORT, &GPIO_InitStruct);
 }
 
@@ -85,12 +91,12 @@ static void DS1302_WriteByte(uint8_t dat)
         } else {
             DS1302_DAT_L();
         }
-        delay_us(DS1302_DELAY_US);
+        delay_us(DS1302_HALF_US);
 
         DS1302_SCLK_H();                    // 上升沿：DS1302 采样
-        delay_us(DS1302_DELAY_US);
+        delay_us(DS1302_HALF_US);
         DS1302_SCLK_L();
-        delay_us(DS1302_DELAY_US);
+        delay_us(DS1302_HALF_US);
 
         dat >>= 1;                          // 低位先发
     }
@@ -104,16 +110,16 @@ static uint8_t DS1302_ReadByte(void)
     uint8_t dat = 0;
 
     for (uint8_t i = 0; i < 8; i++) {
-        delay_us(DS1302_DELAY_US);          // 下降沿之后数据才稳定
+            delay_us(DS1302_HALF_US);          // 下降沿之后数据才稳定
 
         if (DS1302_DAT_READ() == GPIO_PIN_SET) {
             dat |= 0x80;
         }
 
         DS1302_SCLK_H();                    // 给一个上升沿，DS1302 换下一位
-        delay_us(DS1302_DELAY_US);
+        delay_us(DS1302_HALF_US);
         DS1302_SCLK_L();
-        delay_us(DS1302_DELAY_US);
+        delay_us(DS1302_HALF_US);
 
         if (i < 7) {
             dat >>= 1;                      // 低位先收
@@ -285,7 +291,7 @@ uint8_t DS1302_GetTime(DS1302_Time_t *time)
 
     if (time == NULL) return DS1302_ERR_UNSTABLE;
 
-    for (uint8_t retry = 0; retry < 3; retry++) {
+    for (uint8_t retry = 0; retry < 5; retry++) {
         DS1302_ReadRaw(r1);
         DS1302_ReadRaw(r2);
 
