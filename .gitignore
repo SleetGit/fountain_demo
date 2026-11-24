@@ -1,0 +1,25 @@
+# Clion / CMake 构建产物
+cmake-build-*/
+build/
+Debug/
+Release/
+
+# 编译中间件与可执行产物
+*.o
+*.d
+*.elf
+*.hex
+*.bin
+*.map
+*.su
+*.lst
+
+# IDE 本地配置
+.idea/
+.vscode/
+*.ioc.bak
+
+# 系统文件
+Thumbs.db
+desktop.ini
+~$*
