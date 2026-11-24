@@ -29,7 +29,7 @@ uint8_t rtc_status = DS1302_OK;                        // DS1302_OK / DS1302_ERR
  *     · 断电后   -> 靠纽扣电池保留，没电池就归零。
  *  平时保持 0 即可。
  * ------------------------------------------------------- */
-#define DS1302_SET_TIME_ON_BOOT 1
+#define DS1302_SET_TIME_ON_BOOT 0
 
 
 /**

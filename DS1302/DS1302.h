@@ -4,7 +4,7 @@
   * @author SleetGit
   * @date 2026/11/24
   *
-  * @note 接线：CE -> PB0，SCLK -> PB1，DAT(I/O) -> PB5
+  * @note 接线：CE -> PB0，SCLK -> PB1，DAT(I/O) -> PB10
   *       硬件还需要：32.768kHz 晶振 + 纽扣电池（否则断电后时间不保留）
   *
   *       为什么 DAT 不用 PB2：Blue Pill 上 PB2 就是 BOOT1，板载 10k 下拉还接着启动跳线，
@@ -24,7 +24,7 @@
 #define DS1302_SCLK_PIN      GPIO_PIN_1
 
 #define DS1302_DAT_PORT      GPIOB
-#define DS1302_DAT_PIN       GPIO_PIN_5
+#define DS1302_DAT_PIN       GPIO_PIN_10
 
 // ---------------- 寄存器地址（bit0 = 1 表示读，驱动内部自动处理） ----------------
 #define DS1302_REG_SEC       0x80   // 秒   bit7 = CH（时钟停振位）
