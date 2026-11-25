@@ -1,32 +1,19 @@
 /**
   * @file TB6612.h
-  * @brief TB6612FNG 直流电机底层驱动（水泵专用，单方向）
+  * @brief TB6612FNG 直流电机驱动（水泵专用，单方向）
   * @author SleetGit
   * @date 2026/11/25
   *
-  * @note 移植自 Automated_Sorting_System/l298n/l298n_driver.c，接口风格保持一致
+  * @note 接口移植自 Automated_Sorting_System/l298n/l298n_driver.c
   *       （宏配置 + Init/Start/Stop + 0~100 占空比 + 0/-1/-2 返回码）。
   *
-  *       TB6612 与 L298N 的三点差别：
-  *         1. TB6612 多一个 STBY 使能脚：低电平 = 待机，电机不输出
-  *         2. TB6612 支持 20 kHz 以上 PWM，电机不啸叫（L298N 用 50 Hz 会抖）
-  *         3. 真值表不同：
-  *              IN1=1 IN2=0  → 正转
-  *              IN1=0 IN2=1  → 反转
-  *              IN1=0 IN2=0  → 滑行停止（输出高阻）
-  *              IN1=1 IN2=1  → 短路刹车
+  *       真值表：IN1=1 IN2=0 正转 ｜ IN1=0 IN2=1 反转
+  *               IN1=0 IN2=0 滑行停止 ｜ IN1=1 IN2=1 短路刹车
+  *       本驱动只做单向（水泵），方向固定 IN1=1 / IN2=0，只用 PWM 调速。
   *
-  *       本驱动只做单方向（水泵），方向脚固定 IN1=1 / IN2=0，
-  *       调速只改 PWM 占空比。
-  *
-  *       ★ 外设初始化全部由 CubeMX 生成的代码完成：
-  *           · MX_TIM3_Init()    → TIM3 时基 PSC=0 / ARR=3599，CH1 PWM1 模式
-  *           · HAL_TIM3_MspInit  → __HAL_RCC_TIM3_CLK_ENABLE()
-  *           · MspPostInit       → PA6 配成 AF_PP（TIM3_CH1）
-  *           · MX_GPIO_Init()    → PB11/PB12/PB13 推挽输出，初值低电平
-  *         本驱动只负责：启动 PWM、控制方向脚与 STBY、换算占空比。
-  *         所以**换引脚或改频率要改 fountain_demo.ioc 并重新生成**，
-  *         再同步修改下面的宏（仅影响宏名，不影响外设配置）。
+  *       ★ TIM3 与 PA6/PB11/PB12/PB13 全部由 CubeMX 生成，本驱动只负责启动 PWM、
+  *         控制方向脚与 STBY、换算占空比。换引脚或改频率要改 fountain_demo.ioc
+  *         重新生成，再同步下面的宏名。
   */
 
 #ifndef TB6612_H

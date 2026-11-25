@@ -17,7 +17,7 @@
 | 4 | **OLED 显示** | SSD1306 128×64，I²C1 400 kHz，四行界面 | ✅ |
 | 5 | **运行指示** | PC13 板载 LED，每 200 ms 翻转一次 | ✅ |
 | 6 | **WS2812 灯带** | TIM1_CH1 PWM + DMA 合成 800 kHz 单总线时序，30 颗 GRB | ⚠️ 驱动就绪，主循环未调用 |
-| 7 | **水泵控制** | TB6612FNG + TIM3_CH1(PA6) 20 kHz PWM，单方向启停与调速 | ✅ 代码就绪，待接线 |
+| 7 | **水泵控制** | TB6612FNG + TIM3_CH1(PA6) 20 kHz PWM，单方向启停与调速 | ✅ 驱动就绪（循环演示默认关） |
 
 > 第 6 项：`WS2812_Updata()` 已实现但 `run()` 里没有调用，所以灯带一直停在上次锁存的颜色。
 > 要启用只要在 `run()` 开头加一行 `WS2812_Updata();`（注意每次执行约 1 ms，别丢进主循环里反复发，只发一次就挪进 `user_main_init()`）。
@@ -151,11 +151,11 @@ TB6612_Brake();       // 短路刹车（水泵用不到，留给以后做轮子�
 TB6612_Enable(0);     // STBY 拉低，整路待机
 ```
 
-`user_main.c` 里默认开着**循环演示**：工作 5 秒 → 停 5 秒 → 工作 5 秒 ……一直循环，方便验证接线与带载情况。
+`user_main.c` 里带一个**循环演示**开关，打开后工作 5 秒 → 停 5 秒 → 工作 5 秒……一直循环，方便验证接线与带载。
 
 | 宏 | 默认 | 作用 |
 |---|---|---|
-| `PUMP_CYCLE_DEMO` | `1` | 1 = 开启循环演示；0 = 关闭，水泵不动作 |
+| `PUMP_CYCLE_DEMO` | `0` | 1 = 开启循环演示；0 = 关闭，水泵不动作 |
 | `PUMP_CYCLE_DUTY` | `100` | 工作时的转速 0~100（%） |
 | `PUMP_ON_MS` | `5000u` | 每次工作多久（毫秒） |
 | `PUMP_OFF_MS` | `5000u` | 每次停止多久（毫秒） |
@@ -227,7 +227,7 @@ fountain_demo/
 ├─ OLED/
 │  ├─ Inc/driver_ssd1306.h    128×64 字符/数字/汉字/图片 API
 │  ├─ Inc/oledfont.h          8×6 / 16×8 / 32×16 三套字库
-│  └─ Src/driver_ssd1306.c    GRAM 渲染 + I²C 整屏刷新
+│  └─ Src/driver_ssd1306.c    GRAM 渲染 + 分页批量刷新 + I²C 超时/总线恢复
 ├─ delay/                     正点原子 SysTick 延时（DS1302 的位延时依赖它）
 ├─ CMakeLists.txt             模板生成 + 手工追加 target_sources
 └─ fountain_demo.ioc          CubeMX 工程文件
@@ -237,23 +237,24 @@ fountain_demo/
 
 ```
 main()                          Core/Src/main.c
- └─ user_main()                 user_main/user_main.c:39
-     ├─ user_main_init()        :143
+ └─ user_main()                 user_main/user_main.c
+     ├─ user_main_init()
      │   ├─ HAL_TIM_Base_Start_IT(&htim4)        启动 1 ms 节拍
      │   ├─ OLED_Init()                            I²C 初始化 + SSD1306 上电序列
      │   ├─ delay_init(72)                         ★ 必须排在 DS1302_Init() 前面
      │   ├─ DS1302_Init()                          自配 PB0/PB1/PB10，不依赖 CubeMX
      │   ├─ DS1302_GetTime(&now_time)              开机先读一次，避免首屏空值
-     │   ├─ TB6612_Init()                          启动 TIM3_CH1 PWM，初始停机（外设由 CubeMX 配）
+     │   ├─ TB6612_Init()                          启动 TIM3_CH1 PWM 并保持停机
      │   ├─ HAL_ADCEx_Calibration_Start(&hadc1)    ADC 自校准
      │   └─ HAL_ADC_Start_DMA(&hadc1, buf, 64)     ADC 连续转换 + 循环 DMA
-     └─ while(1) run()          :50
-         ├─ flag_1s ? → DS1302_GetTime()          每秒轮询一次 RTC
-         └─ OLED_Updata()       :78  清 GRAM → 画四行 → 整屏刷新
-             ├─ OLED_Updata_Voltage()  :87   Voltage:3.30
-             ├─ OLED_Updata_light()    :98   Light:1
-             ├─ OLED_Updata_Date()     :108  Date:26-11-24
-             └─ OLED_Updata_Time()     :124  Time:18:05:30（含状态码）
+     └─ while(1) run()
+         ├─ flag_1s    ? → DS1302_GetTime()        每秒同步一次 RTC
+         └─ flag_100ms ? → OLED_Updata()           清 GRAM → 画四行 → 分页刷新
+                        → pump_100ms_tick()        水泵循环状态机（PUMP_CYCLE_DEMO=1 时才有效）
+             ├─ OLED_Updata_Voltage()   Voltage:3.30
+             ├─ OLED_Updata_light()     Light:1
+             ├─ OLED_Updata_Date()      Date:26-11-24
+             └─ OLED_Updata_Time()      Time:18:05:30（含状态码）
 ```
 
 > `DS1302_Init()` 在驱动内部自己配置 GPIO，所以即使 CubeMX 里没有这三个脚，也能正常工作。
@@ -276,6 +277,7 @@ main()                          Core/Src/main.c
 |---|---|
 | `tick % 10 == 0` | 扫一遍 64 点缓冲区，刷新窗口峰值 `max_adc_2s` |
 | `tick % 50 == 0` | 读 PB9 → `light` |
+| `tick % 100 == 0` | 置 `flag_100ms` → 主循环刷屏 + 推进水泵状态机 |
 | `tick % 200 == 0` | 翻转 PC13 |
 | `tick % 1000 == 0` | `voltage_mv = max × 3300 / 4095`，清零峰值，置 `flag_1s` |
 | `tick >= 2000` | 计数归零（防溢出，同时固定取模循环点） |

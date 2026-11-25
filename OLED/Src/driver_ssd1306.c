@@ -1,4 +1,3 @@
-
 #include "driver_ssd1306.h"
 #include "oledfont.h"
 
@@ -13,10 +12,6 @@
 
 unsigned char OLED_GRAM[128][8];
 
-
-// ============================================================================
-// I2C 抗干扰：限时事务 + 失败统计 + 总线恢复
-// ============================================================================
 
 static volatile uint8_t  s_err_streak  = 0;   // 连续失败次数
 static volatile uint32_t s_err_total   = 0;   // 累计失败次数
@@ -34,12 +29,8 @@ static void oled_short_delay(void)
 
 /**
   * @brief I2C 总线恢复
-  * @note  电机干扰常让从机（SSD1306）在传输出错后一直拉住 SDA，
-  *        此时主机再怎么发 START 都没用，必须手动打时钟让它松手：
-  *          1. 关掉 I2C 外设，把 SCL/SDA 切成开漏 GPIO
-  *          2. SDA 保持高，SCL 打 9 个脉冲（最多 9 个就够把 8 bit 甩完）
-  *          3. 手工产生一个 STOP（SCL 高时 SDA 由低变高）
-  *          4. 重新初始化 I2C1，MspInit 会把 PB6/PB7 配回 AF_OD
+  * @note  干扰常让从机出错后一直拉住 SDA，此时主机发 START 也没用，
+  *        只能手动打 9 个 SCL 时钟 + 一个 STOP 让它松手，再重新初始化 I2C1。
   */
 void OLED_I2C_Recover(void)
 {
@@ -223,10 +214,9 @@ void OLED_Fill(uint32_t fill_Data)
  * @brief  更新显存到oled
  */
 /**
-  * @brief 把一页（8 行像素 = 128 字节）整块发给屏
-  * @note  OLED_GRAM[128][8] 是"列优先"存储，同一页的 128 字节并不连续，
-  *        所以先拷进临时缓冲区再一次性发。一页 2 次事务（先地址、后数据），
-  *        8 页共 16 次；原来是 1034 次单字节事务，被干扰打断的窗口小两个数量级。
+  * @brief 把一页（128 字节）整块发给屏
+  * @note  OLED_GRAM[128][8] 是列优先存储，同一页的 128 字节不连续，先拷进缓冲区。
+  *        8 页共 16 次事务（原来 1034 次单字节），被干扰打断的窗口小两个数量级。
   * @return 1 成功，0 失败
   */
 static uint8_t oled_write_page(uint8_t page)
@@ -254,9 +244,7 @@ void OLED_Refresh_Gram(void)
 
     for (page = 0; page < 8; page++) {
         if (!oled_write_page(page)) {
-            // 本帧放弃：最多卡 OLED_I2C_TIMEOUT_MS，下一帧继续刷，
-            // 不会再出现"屏幕冻结几十秒、LED 还在闪"的现象
-            return;
+            return;      // 本帧放弃，最多卡 10 ms，下一帧再刷
         }
     }
 }

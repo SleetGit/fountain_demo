@@ -32,14 +32,11 @@ uint8_t rtc_status = DS1302_OK;                        // DS1302_OK / DS1302_ERR
  * ------------------------------------------------------- */
 #define DS1302_SET_TIME_ON_BOOT 0
 
-/* ---------------- 【水泵循环演示开关】 ----------------
- *  改成 1：上电后水泵循环执行“工作 PUMP_ON_MS 毫秒 → 停 PUMP_OFF_MS 毫秒”，
- *          默认 5 秒工作 / 5 秒停止，用来验证 TB6612 接线与带载情况。
- *  ★ 全程不阻塞：由 flag_100ms 驱动状态机推进，抽水期间 OLED 照常刷新、RTC 照常走。
- *    （绝对不要把电机动作写成 delay_ms —— 主循环一停，屏幕就冻结了）
- *  不想让它自己抽水就把 PUMP_CYCLE_DEMO 改回 0。
+/* ---------------- 水泵循环演示 ----------------
+ *  PUMP_CYCLE_DEMO=1 时，水泵按“工作 PUMP_ON_MS → 停 PUMP_OFF_MS”无限循环。
+ *  状态机由 flag_100ms 推进，不要改成 delay_ms（主循环一停，屏幕就冻结了）。
  * ------------------------------------------------------- */
-#define PUMP_CYCLE_DEMO       1          // 1=开启循环演示  0=关闭
+#define PUMP_CYCLE_DEMO       0          // 1=开启循环演示  0=关闭
 #define PUMP_CYCLE_DUTY       100        // 工作时的转速 0~100（%）
 #define PUMP_ON_MS            5000u      // 每次工作多久（毫秒）
 #define PUMP_OFF_MS           5000u      // 每次停止多久（毫秒）
@@ -53,7 +50,6 @@ int user_main()
 {
     user_main_init();
     while (1) {
-        // 运行主逻辑
         run();
     }
 
@@ -62,44 +58,41 @@ int user_main()
 
 /**
   * @brief 水泵循环服务：工作 → 停止 → 工作 ……（非阻塞）
-  * @note  由 run() 在 flag_100ms 到点时调用一次，用 100 ms 拍数计时。
-  *        **不使用 delay_ms**，所以抽水期间主循环照常跑、OLED 照常刷新。
-  *        以后要给水泵加别的时序（按液位动作、手动开关）也在这个状态机里扩展。
+  * @note  由 run() 在 flag_100ms 到点时调用，用 100 ms 拍数计时；
+  *        不使用 delay_ms，所以抽水期间 OLED 照常刷新。
   */
 static void pump_100ms_tick(void)
 {
 #if PUMP_CYCLE_DEMO
-    static uint8_t  state   = 0;                    // 0=待启动 1=工作中 2=停止中
-    static uint32_t elapsed = 0;                    // 当前状态已持续的 100 ms 拍数
-    const uint32_t  on_ticks  = PUMP_ON_MS  / 100u; // 5000ms -> 50 拍
-    const uint32_t  off_ticks = PUMP_OFF_MS / 100u; // 5000ms -> 50 拍
+    static uint8_t  state   = 0;    // 0=待启动 1=工作中 2=停止中
+    static uint32_t elapsed = 0;    // 当前状态已持续的 100 ms 拍数
 
     switch (state) {
-    case 0:                                         // 上电后第一拍：开始第一轮"工作"
+    case 0:
         TB6612_Start(PUMP_CYCLE_DUTY);
         elapsed = 0;
         state   = 1;
         break;
 
-    case 1:                                         // 工作中：到时切到停止
+    case 1:                         // 工作中 → 停止
         elapsed++;
-        if (elapsed >= on_ticks) {
+        if (elapsed >= PUMP_ON_MS / 100u) {
             TB6612_Stop();
             elapsed = 0;
             state   = 2;
         }
         break;
 
-    case 2:                                         // 停止中：到时切回工作
+    case 2:                         // 停止中 → 工作
         elapsed++;
-        if (elapsed >= off_ticks) {
+        if (elapsed >= PUMP_OFF_MS / 100u) {
             TB6612_Start(PUMP_CYCLE_DUTY);
             elapsed = 0;
             state   = 1;
         }
         break;
 
-    default:                                        // 兜底：回到待启动
+    default:
         state   = 0;
         elapsed = 0;
         break;
@@ -109,39 +102,35 @@ static void pump_100ms_tick(void)
 
 void run()
 {
-    /* RTC：每秒同步一次（flag_1s 由 TIM4 中断置位） */
-    if (flag_1s == 1) {          // 每秒同步一次 RTC（降速后读一次约 6ms，不适合放中断里）
+    /* RTC：每秒同步一次（读一次约 6 ms，放中断里不合适） */
+    if (flag_1s == 1) {
         flag_1s = 0;
         DS1302_Time_t fresh;
         uint8_t st = DS1302_GetTime(&fresh);
         rtc_status = st;
         if (st == DS1302_OK) {
-            now_time = fresh;    // 只有读稳了才更新；读到坏数据就保持上一次的好值，屏上显示 --
+            now_time = fresh;    // 读到坏数据就保持上次好值，屏上秒位显示 --
         }
     }
 
-    /* 屏幕：TIM4 每 100 ms 置一次 flag_100ms，主循环轮询到就刷一帧。
-     * 用人眼看 10 Hz 足够；时间基准统一放在 TIM4 中断里，
-     * 不用 HAL_GetTick() 算差值，也不会有"主循环被阻塞后补刷好几帧"的问题。 */
+    /* 屏幕：TIM4 每 100 ms 置一次 flag_100ms，主循环轮询到就刷一帧。 */
     if (flag_100ms == 1) {
         flag_100ms = 0;
-        OLED_Updata();          // 先刷屏：保证界面永远不被电机动作挡住
-        pump_100ms_tick();      // 再推进水泵状态机（非阻塞，内部不用 delay）
+        OLED_Updata();          // 先刷屏，再动电机
+        pump_100ms_tick();
     }
 }
 /**
- * @brief  更新 WS2812 灯带显示 (前30个灯点亮为绿色)
- * @note   为什么代码改了/注释了，灯还亮着？
- *         1. WS2812 内部有“锁存”功能，发完颜色只要不断电，就会一直保持。
- *         2. 重新烧录只是让 STM32 复位了，灯带的电没断，所以会“定格”在上次颜色。
- *         3. 要真正熄灭，必须用 SetColor 发全 0，再执行一次 Show()；
+ * @brief  更新 WS2812 灯带显示（前 30 颗点亮为绿色）
+ * @note   灯带内部锁存，不断电就一直保持最后一帧；
+ *         要真正熄灭必须发全 0 再 Show() 一次。
  */
 void WS2812_Updata(void)
 {
-    for (uint8_t i = 0; i < Led_Num; i++) {//只有30个灯从0开始，要修改灯的数量请前往WS2812.h修改
+    for (uint8_t i = 0; i < Led_Num; i++) {   // 灯数改 WS2812.h 的 Led_Num
         WS2812_SetColor(i, 0, 24, 0);
     }
-    WS2812_Show();                 // 发射数据！
+    WS2812_Show();
 }
 
 void OLED_Updata(void)
@@ -213,23 +202,20 @@ void user_main_init()
 {
     HAL_TIM_Base_Start_IT(&htim4);
     OLED_Init();
-    delay_init(72);              // DS1302 的位操作延时依赖它，必须排在 DS1302_Init() 前面
+    delay_init(72);              // DS1302 位操作延时依赖它，必须排在 DS1302_Init() 之前
 
     // ---------------- DS1302 实时时钟 ----------------
     DS1302_Init();
 
 #if DS1302_SET_TIME_ON_BOOT
-    // 【写时间】把上面 now_time 的初值写进芯片。
-    // 烧完把开头那个宏改回 0，再烧一次就完事。
-    // 注意顺序：必须先写、后读 —— 下面的 GetTime 会把 now_time 覆盖成芯片里的真实时间。
-    (void)DS1302_SetTime(&now_time);   // 内部会读回校验；写不进去屏上秒位会显示 ##
+    /* 必须先写后读：下面的 GetTime 会把 now_time 覆盖掉 */
+    (void)DS1302_SetTime(&now_time);   // 内部读回校验，写不进去屏上秒位显示 ##
 #endif
 
-    rtc_status = DS1302_GetTime(&now_time);   // 先读一次，避免开机第一秒显示空值
+    rtc_status = DS1302_GetTime(&now_time);   // 开机先读一次，避免首屏空值
 
     // ---------------- 水泵（TB6612，单方向） ----------------
-    // 引脚与 TIM3 由 CubeMX 生成；这里只启动 PWM 并保持停机
-    TB6612_Init();                 // 初始停机，水泵不动；自检在 run() 里由状态机推进
+    TB6612_Init();                 // 引脚与 TIM3 由 CubeMX 生成，这里只启 PWM 并保持停机
 
     HAL_ADCEx_Calibration_Start(&hadc1);
     HAL_ADC_Start_DMA(&hadc1, (uint32_t *) adc_dma_buffer, ADC_BUFFER_SIZE);
@@ -238,13 +224,12 @@ void user_main_init()
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
     if (htim == &htim4) {
-        // 判断中断源是否为定时器htim4
-        TIM4_tick_ms++; // 每次中断时增加计数
+        TIM4_tick_ms++;
 
         if (TIM4_tick_ms % 10 == 0) {
             for (int i = 0; i < ADC_BUFFER_SIZE; i++) {
                 if (adc_dma_buffer[i] > max_adc_2s) {
-                    max_adc_2s = adc_dma_buffer[i]; // 不断刷新这 1 秒内的最大值
+                    max_adc_2s = adc_dma_buffer[i];
                 }
             }
         }
@@ -258,24 +243,20 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
         }
 
         if (TIM4_tick_ms % 100 == 0) {
-            // 通知主循环该刷屏了。整屏刷新要 ~25ms 且全是阻塞 I2C，绝不能放中断里
-            flag_100ms = 1;
+            flag_100ms = 1;        // 刷屏要 ~25 ms 阻塞 I2C，交给主循环做
         }
 
         if (TIM4_tick_ms % 200 == 0) {
-            HAL_GPIO_TogglePin(GPIOC,GPIO_PIN_13); // 每200毫秒翻转LED状态
+            HAL_GPIO_TogglePin(GPIOC,GPIO_PIN_13);
         }
 
         if (TIM4_tick_ms % 1000 == 0) {
-            // 把这 1 秒内采集到的最大原始值，换算成电压 (12 位满量程 4095 对应 3300 mV)
-            voltage_mv = (max_adc_2s * 3300) / 4095;
-            // 清零，开始记录下一秒的最高电平
+            voltage_mv = (max_adc_2s * 3300) / 4095;   // 1 秒峰值 → mV
             max_adc_2s = 0;
-            // 通知主循环：该去读一次 RTC 了（读 DS1302 要 1ms 左右，放中断里不合适）
-            flag_1s = 1;
+            flag_1s = 1;                               // 通知主循环去读 RTC
         }
 
-        // 计数器每 2 秒归零：既防止一直累加，也保证 % 取模的循环点固定
+        // 每 2 秒归零：防止累加溢出，也固定取模循环点
         if (TIM4_tick_ms >= 2000) {
             TIM4_tick_ms = 0;
         }

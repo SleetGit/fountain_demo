@@ -45,19 +45,16 @@ enum Font_Size
 #define Write_DATA 1	//写数据
 
 //-----------------I2C 抗干扰参数----------------
-// 单次 I2C 事务的超时（毫秒）。原来是 0xffff（≈65 秒），一旦被电机干扰打断，
-// 主循环会卡死在 HAL_I2C_Mem_Write 里几十秒，表现为"屏幕冻结但 LED 还在闪"。
-// 电机噪声环境下必须限成毫秒级：失败就让这一帧作废，下一帧再刷。
+// 单次事务超时（毫秒）。原值是 0xffff ≈ 65 秒，被电机干扰打断后主循环会卡死几十秒，
+// 表现为“屏幕冻结但 LED 还在闪”。失败就当帧作废，下一帧再刷。
 #define OLED_I2C_TIMEOUT_MS   10
-
-// 连续失败多少次就认为总线被从机拉死，触发一次总线恢复
+// 连续失败多少次认为总线被从机拉死，触发一次总线恢复
 #define OLED_I2C_ERR_LIMIT    3
 
-// I2C 总线恢复统计与状态查询
 uint8_t  OLED_GetErrStreak(void);      // 当前连续失败次数
 uint32_t OLED_GetErrTotal(void);       // 累计失败次数
 uint32_t OLED_GetRecoverCount(void);   // 累计总线恢复次数
-void     OLED_I2C_Recover(void);       // 手动触发一次总线恢复（自动恢复失败时用）
+void     OLED_I2C_Recover(void);       // 手动触发一次总线恢复
 
 //使用以下函数这是更新了缓冲区的数据，要刷新屏幕需要跟上OLED_Refresh_Gram()函数
 void OLED_Text();

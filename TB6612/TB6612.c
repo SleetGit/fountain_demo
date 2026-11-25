@@ -10,20 +10,11 @@
 
 #include "TB6612.h"
 
-// ============================================================================
-// 内部变量
-// ============================================================================
-
 static uint8_t s_inited = 0;   // 1 = PWM 已启动
 static int     s_duty   = 0;   // 当前占空比 0~100
 
-// ============================================================================
-// 内部函数
-// ============================================================================
-
 /**
   * @brief 占空比 -> PWM 比较值
-  * @param dutyRatio 占空比 0~100
   * @return 比较值；参数非法返回 -1
   */
 static int speed_convert(int dutyRatio)
@@ -33,9 +24,8 @@ static int speed_convert(int dutyRatio)
 }
 
 /**
-  * @brief 设置方向脚为"水泵正转"这一组固定电平
-  * @note  水泵只能单向抽水，所以方向是写死的；如果装反了，
-  *        把 AO1/AO2 两根线对调，不要改代码
+  * @brief 设置方向脚为“水泵正转”这一组固定电平
+  * @note  单向抽水，方向写死；装反了就把 AO1/AO2 两根线对调，不要改代码
   */
 static void dir_set_forward(void)
 {
@@ -43,24 +33,16 @@ static void dir_set_forward(void)
     HAL_GPIO_WritePin(TB6612_AIN2_PORT, TB6612_AIN2_PIN, TB6612_DIR_AIN2_SET);
 }
 
-// ============================================================================
-// 驱动函数实现
-// ============================================================================
-
 void TB6612_Init(void)
 {
-    // 引脚方向（PB11/PB12/PB13 推挽输出）已在 MX_GPIO_Init() 里配好，
-    // 且初值为低电平（STBY 低 = 待机），所以上电瞬间电机不会动。
-
-    // 启动 TIM3_CH1 的 PWM 输出（时基与通道已在 MX_TIM3_Init() 里配好）
+    // PB11/PB12/PB13 已在 MX_GPIO_Init() 配成推挽输出且初值低电平（STBY 低 = 待机），
+    // 所以上电瞬间电机不会动；这里只启动 PWM 并置成停止态。
     HAL_TIM_PWM_Start(TB6612_PWM_TIMER, TB6612_PWM_CHANNEL);
     __HAL_TIM_SET_COMPARE(TB6612_PWM_TIMER, TB6612_PWM_CHANNEL, 0);
 
-    // 初始：滑行停止
     HAL_GPIO_WritePin(TB6612_AIN1_PORT, TB6612_AIN1_PIN, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(TB6612_AIN2_PORT, TB6612_AIN2_PIN, GPIO_PIN_RESET);
 
-    // 使能输出
     TB6612_Enable(1);
 
     s_duty   = 0;
