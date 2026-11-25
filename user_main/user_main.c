@@ -19,6 +19,7 @@ uint32_t light = 0;
 //   · 平时它是读回来之后的当前时间快照（OLED 显示的就是它）。
 DS1302_Time_t now_time = {2026, 11, 24, 2, 23, 44, 0};
 volatile uint8_t flag_1s = 0;                          // 1 秒到点标志（中断里置位，主循环清零）
+volatile uint8_t flag_100ms = 0;                       // 100 ms 到点标志（中断里置位，主循环清零）
 uint8_t rtc_status = DS1302_OK;                        // DS1302_OK / DS1302_ERR_UNSTABLE / DS1302_ERR_BAD_BCD
 
 /* ---------------- 【改时间就用这里，两步走】 ----------------
@@ -55,8 +56,7 @@ int user_main()
 
 void run()
 {
-    static uint32_t t_last_oled = 0;
-
+    /* RTC：每秒同步一次（flag_1s 由 TIM4 中断置位） */
     if (flag_1s == 1) {          // 每秒同步一次 RTC（降速后读一次约 6ms，不适合放中断里）
         flag_1s = 0;
         DS1302_Time_t fresh;
@@ -67,13 +67,11 @@ void run()
         }
     }
 
-    /* 屏幕上人眼看 10 Hz 足够。原来每一轮主循环都整屏刷新，一帧要占总线
-     * 几十毫秒、而且是连续 1000 多次 I2C 事务，电机一干扰就整帧报废。
-     * 节流到 100 ms 后，总线占用率降到 1/4 左右，被干扰命中的概率也随之下降。
-     * 注意：HAL_GetTick() 是 32 位毫秒计数，约 49 天回绕一次，
-     *       用"差值 >= 100"的写法在回绕时依然正确。 */
-    if ((HAL_GetTick() - t_last_oled) >= 100U) {
-        t_last_oled = HAL_GetTick();
+    /* 屏幕：TIM4 每 100 ms 置一次 flag_100ms，主循环轮询到就刷一帧。
+     * 用人眼看 10 Hz 足够；时间基准统一放在 TIM4 中断里，
+     * 不用 HAL_GetTick() 算差值，也不会有"主循环被阻塞后补刷好几帧"的问题。 */
+    if (flag_100ms == 1) {
+        flag_100ms = 0;
         OLED_Updata();
     }
 }
@@ -179,7 +177,7 @@ void user_main_init()
     // 引脚由驱动自己初始化：PB11=AIN1、PB12=AIN2、PB13=STBY、PA6=TIM3_CH1(PWM)
     TB6612_Init();                            // 初始停机，水泵不动
 #if PUMP_SELF_TEST
-    TB6612_Start(100);                         // 60% 转速自检 5 秒
+    TB6612_Start(100);                         // 100% 转速自检 5 秒（改这个数可调自检转速）
     delay_ms(5000);
     TB6612_Stop();
 #endif
@@ -208,6 +206,11 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
             } else {
                 light = 0;
             }
+        }
+
+        if (TIM4_tick_ms % 100 == 0) {
+            // 通知主循环该刷屏了。整屏刷新要 ~25ms 且全是阻塞 I2C，绝不能放中断里
+            flag_100ms = 1;
         }
 
         if (TIM4_tick_ms % 200 == 0) {
