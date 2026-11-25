@@ -31,6 +31,12 @@ uint8_t rtc_status = DS1302_OK;                        // DS1302_OK / DS1302_ERR
  * ------------------------------------------------------- */
 #define DS1302_SET_TIME_ON_BOOT 0
 
+/* ---------------- 【水泵自检开关】 ----------------
+ *  改成 1：上电后水泵以 60% 转速跑 5 秒，用来验证 TB6612 接线是否正确；
+ *  验证完改回 0 即可。平时保持 0，水泵不动作。
+ * ------------------------------------------------------- */
+#define PUMP_SELF_TEST 0
+
 
 /**
   * @brief 主程序入口函数，初始化按键检测和运行逻辑
@@ -157,6 +163,15 @@ void user_main_init()
 #endif
 
     rtc_status = DS1302_GetTime(&now_time);   // 先读一次，避免开机第一秒显示空值
+
+    // ---------------- 水泵（TB6612，单方向） ----------------
+    // 引脚由驱动自己初始化：PB11=AIN1、PB12=AIN2、PB13=STBY、PA6=TIM3_CH1(PWM)
+    TB6612_Init();                            // 初始停机，水泵不动
+#if PUMP_SELF_TEST
+    TB6612_Start(60);                         // 60% 转速自检 5 秒
+    delay_ms(5000);
+    TB6612_Stop();
+#endif
 
     HAL_ADCEx_Calibration_Start(&hadc1);
     HAL_ADC_Start_DMA(&hadc1, (uint32_t *) adc_dma_buffer, ADC_BUFFER_SIZE);

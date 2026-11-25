@@ -38,6 +38,7 @@ extern "C" {
 #include "adc.h"
 #include "WS2812.h"
 #include "DS1302.h"
+#include "TB6612.h"
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
