@@ -17,7 +17,7 @@ uint32_t light = 0;
 // 【要改时间就改这一行】字段顺序：年, 月, 日, 星期, 时, 分, 秒
 //   · 当 DS1302_SET_TIME_ON_BOOT = 1 时，它就是"要写进芯片的时间"；
 //   · 平时它是读回来之后的当前时间快照（OLED 显示的就是它）。
-DS1302_Time_t now_time = {2026, 11, 24, 2, 18, 0, 0};
+DS1302_Time_t now_time = {2026, 11, 24, 2, 23, 44, 0};
 volatile uint8_t flag_1s = 0;                          // 1 秒到点标志（中断里置位，主循环清零）
 uint8_t rtc_status = DS1302_OK;                        // DS1302_OK / DS1302_ERR_UNSTABLE / DS1302_ERR_BAD_BCD
 
