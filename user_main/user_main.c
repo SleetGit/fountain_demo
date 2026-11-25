@@ -33,10 +33,15 @@ uint8_t rtc_status = DS1302_OK;                        // DS1302_OK / DS1302_ERR
 #define DS1302_SET_TIME_ON_BOOT 0
 
 /* ---------------- 【水泵自检开关】 ----------------
- *  改成 1：上电后水泵以 60% 转速跑 5 秒，用来验证 TB6612 接线是否正确；
- *  验证完改回 0 即可。平时保持 0，水泵不动作。
+ *  改成 1：上电后水泵以 PUMP_SELF_TEST_DUTY% 转速运行 PUMP_SELF_TEST_MS 毫秒，
+ *          用来验证 TB6612 接线是否正确。
+ *  ★ 全程不阻塞：由 flag_100ms 驱动状态机推进，自检期间 OLED 照常刷新、RTC 照常走。
+ *    （绝对不要用 delay_ms 等电机动作 —— 主循环一停，屏幕就冻结了）
+ *  验证完把 PUMP_SELF_TEST 改回 0 即可，平时保持 0，水泵不动作。
  * ------------------------------------------------------- */
-#define PUMP_SELF_TEST 1
+#define PUMP_SELF_TEST        1
+#define PUMP_SELF_TEST_DUTY   100        // 自检转速 0~100（%）
+#define PUMP_SELF_TEST_MS     5000u      // 自检时长（毫秒）
 
 
 /**
@@ -52,6 +57,40 @@ int user_main()
     }
 
     return 0; // 死循环不会走到这里，仅用于消除 "control reaches end of non-void function" 警告
+}
+
+/**
+  * @brief 水泵 100 ms 节拍服务（非阻塞）
+  * @note  由 run() 在 flag_100ms 到点时调用一次，所有电机动作都在这里推进状态，
+  *        **不使用 delay_ms**，所以自检期间主循环照常跑、OLED 照常刷新。
+  *        以后要给水泵加别的时序（定时启停、按液位动作）也在这个状态机里扩展。
+  */
+static void pump_100ms_tick(void)
+{
+#if PUMP_SELF_TEST
+    static uint8_t  state   = 0;                    // 0=待启动 1=运行中 2=已完成
+    static uint32_t elapsed = 0;                    // 已运行的 100 ms 节拍数
+    const uint32_t  need    = PUMP_SELF_TEST_MS / 100u;
+
+    switch (state) {
+    case 0:                                         // 上电后第一拍：启动
+        TB6612_Start(PUMP_SELF_TEST_DUTY);
+        elapsed = 0;
+        state   = 1;
+        break;
+
+    case 1:                                         // 运行中：累计时间，到点停
+        elapsed++;
+        if (elapsed >= need) {
+            TB6612_Stop();
+            state = 2;
+        }
+        break;
+
+    default:                                        // 2=已完成，之后不再动作
+        break;
+    }
+#endif
 }
 
 void run()
@@ -72,7 +111,8 @@ void run()
      * 不用 HAL_GetTick() 算差值，也不会有"主循环被阻塞后补刷好几帧"的问题。 */
     if (flag_100ms == 1) {
         flag_100ms = 0;
-        OLED_Updata();
+        OLED_Updata();          // 先刷屏：保证界面永远不被电机动作挡住
+        pump_100ms_tick();      // 再推进水泵状态机（非阻塞，内部不用 delay）
     }
 }
 /**
@@ -174,13 +214,8 @@ void user_main_init()
     rtc_status = DS1302_GetTime(&now_time);   // 先读一次，避免开机第一秒显示空值
 
     // ---------------- 水泵（TB6612，单方向） ----------------
-    // 引脚由驱动自己初始化：PB11=AIN1、PB12=AIN2、PB13=STBY、PA6=TIM3_CH1(PWM)
-    TB6612_Init();                            // 初始停机，水泵不动
-#if PUMP_SELF_TEST
-    TB6612_Start(100);                         // 100% 转速自检 5 秒（改这个数可调自检转速）
-    delay_ms(5000);
-    TB6612_Stop();
-#endif
+    // 引脚与 TIM3 由 CubeMX 生成；这里只启动 PWM 并保持停机
+    TB6612_Init();                 // 初始停机，水泵不动；自检在 run() 里由状态机推进
 
     HAL_ADCEx_Calibration_Start(&hadc1);
     HAL_ADC_Start_DMA(&hadc1, (uint32_t *) adc_dma_buffer, ADC_BUFFER_SIZE);
