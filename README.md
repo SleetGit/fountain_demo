@@ -212,6 +212,7 @@ fountain_demo/
 ├─ Core/                      CubeMX 生成，别手改（除非在 USER CODE 段内）
 │  ├─ Inc/  main.h tim.h adc.h i2c.h gpio.h dma.h ...
 │  └─ Src/  main.c  tim.c  adc.c  i2c.c  gpio.c  stm32f1xx_it.c ...
+│                            main.h 只放 HAL 与引脚宏，不再转发模块头
 ├─ user_main/                 ★ 业务逻辑
 │  ├─ user_main.c             初始化、run() 主循环、四行显示绘制、TIM4 回调
 │  └─ user_main.h
@@ -316,11 +317,21 @@ main()                          Core/Src/main.c
 |:--:|---|---|
 | 🔴 | `WS2812_Updata()` 未被调用 | 灯带永远停在上次锁存的颜色，从没收到过新数据 |
 | 🟠 | `voltage_mv` / `light` / `max_adc_2s` 缺 `volatile` | 中断里写、主循环里读，`-O2` 下可能读到旧值（`flag_1s` 已加） |
-| 🟠 | WS2812 用循环 DMA + 回调里 `Stop_DMA` | 建议 `tim.c` 改成 `DMA_NORMAL`，"发完即止"语义更清楚 |
 | 🟡 | OLED 坐标硬编码 | `63`、`63+9`、`63+14` 与 MEDIUM 字宽绑死，换字号或改文案就会重叠 |
-| 🟡 | `main.h` 与 `user_main.h` 互相包含 | 改任何模块头都要重编整个工程 |
-| 🟢 | `OLED_DrawStr` 形参是 `uint8_t *` | 调用处靠强转消警告，驱动本身应改成 `const char *` |
-| 🟢 | 工程卫生 | `WS2812.h` 的 include guard 叫 `__RGB_H`；`driver_ssd1306.h` 还留着 SPI 模式宏；`CMakeLists.txt` 顶部注释与实际不符 |
+| 🟢 | 字库表 `-Wmissing-braces` | `oledfont.h` 三套字库是平铺数组，补花括号要逐行改；仅是警告，不影响功能 |
+
+### ✅ 已处理（2026-11-25）
+
+| 项 | 处理方式 |
+|---|---|
+| WS2812 用循环 DMA + 回调里 `Stop_DMA` | `.ioc` 里 DMA 模式改成 **Normal**，`tim.c` 由 CubeMX 重新生成；`HAL_TIM_PWM_PulseFinishedCallback` 里的 `Stop_DMA` 保留作收尾 |
+| `main.h` 与 `user_main.h` 互相包含 | `user_main.h` 不再包含 `main.h`；`main.h` 的 USER CODE 段清空、不再转发模块头 —— **谁用谁包含**，以后改某个模块头只重编相关 `.c` |
+| `OLED_DrawStr` 形参是 `uint8_t *` | 改成 `const char *`，`user_main.c` 里 4 个 `(uint8_t *)` 强转全部删掉 |
+| 工程卫生 | `WS2812.h` 的 include guard 改为 `WS2812_H`；`driver_ssd1306.h` 删掉 SPI 模式宏（PB12/PB13 已被 TB6612 占用）；`CMakeLists.txt` 顶部注释改成与实际一致 |
+| `OLED_Clear` / `OLED_DrawCN` 有未使用变量 | 删除，`driver_ssd1306.c` 的警告只剩字库表那 4 条 |
+
+> 解耦后各 `.c` 自己包含所需模块：`user_main.c` 包含 delay/tim/adc/OLED/WS2812/DS1302/TB6612，
+> `WS2812.c` 加 `tim.h`（htim1），`TB6612.h` 加 `tim.h`（htim3），`main.c` 在 USER CODE 段包含 `user_main.h`。
 
 ---
 

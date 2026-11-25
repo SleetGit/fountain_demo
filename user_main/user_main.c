@@ -6,6 +6,13 @@
   */
 
 #include "user_main.h"
+#include "delay.h"
+#include "tim.h"
+#include "adc.h"
+#include "driver_ssd1306.h"
+#include "WS2812.h"
+#include "DS1302.h"
+#include "TB6612.h"
 
 #define ADC_BUFFER_SIZE 64
 
@@ -148,14 +155,14 @@ void OLED_Updata_Voltage(void)
     uint32_t int_part = voltage_mv / 1000;
     uint32_t dec_part = (voltage_mv % 1000) / 10;
 
-    OLED_DrawStr(0, 0, (uint8_t *)"Voltage:", MEDIUM, 0);
+    OLED_DrawStr(0, 0, "Voltage:", MEDIUM, 0);
     OLED_DrawNum(63, 0, int_part, MEDIUM, 0);
     OLED_DrawChar(63 + 9, 0, '.', MEDIUM, 0);
     OLED_DrawNum0(63 + 14, 0, dec_part, MEDIUM, 0);
 }
 void OLED_Updata_light(void)
 {
-    OLED_DrawStr(0, 16, (uint8_t *)"Light:", MEDIUM, 0);
+    OLED_DrawStr(0, 16, "Light:", MEDIUM, 0);
     OLED_DrawNum(48, 16, light, MEDIUM, 0);
 }
 /**
@@ -165,7 +172,7 @@ void OLED_Updata_light(void)
  */
 void OLED_Updata_Date(void)
 {
-    OLED_DrawStr(0, 32, (uint8_t *)"Date:", MEDIUM, 0);
+    OLED_DrawStr(0, 32, "Date:", MEDIUM, 0);
     OLED_DrawNum0(48, 32, now_time.year % 100, MEDIUM, 0);
     OLED_DrawChar(64, 32, '-', MEDIUM, 0);
     OLED_DrawNum0(72, 32, now_time.month, MEDIUM, 0);
@@ -181,7 +188,7 @@ void OLED_Updata_Date(void)
  */
 void OLED_Updata_Time(void)
 {
-    OLED_DrawStr(0, 48, (uint8_t *)"Time:", MEDIUM, 0);
+    OLED_DrawStr(0, 48, "Time:", MEDIUM, 0);
     OLED_DrawNum0(48, 48, now_time.hour, MEDIUM, 0);
     OLED_DrawChar(64, 48, ':', MEDIUM, 0);
     OLED_DrawNum0(72, 48, now_time.minute, MEDIUM, 0);

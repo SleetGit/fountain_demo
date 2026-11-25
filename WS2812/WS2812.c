@@ -1,4 +1,5 @@
 #include "WS2812.h"
+#include "tim.h"
 
 // 全局数组，放在静态区，DMA 搬数据时绝对安全
 uint16_t RGB_buffur[Reste_Data + Led_Num * Led_Data_Len] = { 0 };
@@ -29,7 +30,7 @@ void WS2812_Show(void)
     HAL_TIM_PWM_Start_DMA(&htim1, TIM_CHANNEL_1, (uint32_t *)RGB_buffur, Reste_Data + Led_Num * Led_Data_Len);
 }
 
-// 传输完成回调函数（保留原作者的，用于关闭 DMA 防止重复触发）
+// 传输完成回调：DMA 配的是 NORMAL 模式（发完即止），这里把 PWM-DMA 关掉收尾
 void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
 {
     if(htim == &htim1) {

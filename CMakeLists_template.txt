@@ -1,4 +1,5 @@
-#${templateWarning}
+# 本文件由 CMakeLists_template.txt 生成（CubeMX），改模板后重新生成会覆盖本文件；
+# 手工追加的 target_sources / target_include_directories 请同步写进模板。
 set(CMAKE_SYSTEM_NAME Generic)
 set(CMAKE_SYSTEM_VERSION 1)
 ${cmakeRequiredVersion}

@@ -31,14 +31,8 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "user_main.h"
-#include "delay.h"
-#include "tim.h"
-#include "driver_ssd1306.h"
-#include "adc.h"
-#include "WS2812.h"
-#include "DS1302.h"
-#include "TB6612.h"
+/* 这里不放各模块的头文件：谁用谁在 .c 里包含，避免改一个模块头就全工程重编。
+ * main.h 只保留 CubeMX 生成的内容（HAL + 引脚宏）。 */
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/

@@ -185,8 +185,6 @@ void OLED_Init(void)
  */
 void OLED_Clear(uint32_t backColor)
 {
-    uint8_t x, y;
-
     if(backColor == 0xffff) {
         OLED_Fill(0xffff);
     } else {
@@ -525,11 +523,11 @@ void OLED_DrawChar(uint8_t x, uint8_t y, uint8_t ch, enum Font_Size fontSize,uin
 //画字符串;x:0~127 y:0~63
 //fontSize: SMALL, MEDIUM, BIG
 //注意使用到的字库，取模方式不一样
-void OLED_DrawStr(uint8_t x, uint8_t y, uint8_t * ch, enum Font_Size fontSize, uint16_t Color_Turn)
+void OLED_DrawStr(uint8_t x, uint8_t y, const char * ch, enum Font_Size fontSize, uint16_t Color_Turn)
 {
     while((*ch>=' ')&&(*ch<='~'))//判断是不是非法字符!
     {
-        OLED_DrawChar(x,y,*ch,fontSize,Color_Turn);
+        OLED_DrawChar(x,y,(uint8_t)(*ch),fontSize,Color_Turn);
         switch(fontSize) {
             case SMALL:
                 x += 6;
@@ -701,7 +699,7 @@ void OLED_DrawNum0(uint8_t x, uint8_t y, uint16_t num, enum Font_Size fontSize, 
 void OLED_DrawCN(uint8_t x, uint8_t y, uint16_t N, uint16_t Color_Turn)
 {
     const uint8_t *charData;
-    uint8_t row, col, i;
+    uint8_t row, col;
 
     charData = Hzk1[N];
     if(Color_Turn==0) {

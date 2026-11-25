@@ -9,24 +9,10 @@
 
 
 
-//-----------------OLED端口定义---------------- 
-//#define OLED_RES_Clr() HAL_GPIO_WritePin(OLED_RES_GPIO_Port,OLED_RES_Pin,GPIO_PIN_RESET)//RES
-//#define OLED_RES_Set() HAL_GPIO_WritePin(OLED_RES_GPIO_Port,OLED_RES_Pin,GPIO_PIN_SET)
-
-#define OLED_DC_Clr()  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_RESET)//DC
-#define OLED_DC_Set()  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_SET)
- 		     
-#define OLED_CS_Clr()  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET)//CS
-#define OLED_CS_Set()  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_SET)
-
-#define OLED_SCK_Clr()  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13, GPIO_PIN_RESET)  //SCK
-#define OLED_SCK_Set()  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13, GPIO_PIN_SET)
- 		     
-#define OLED_MOSI_Clr()  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_15, GPIO_PIN_RESET)  //MOSI
-#define OLED_MOSI_Set()  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_15, GPIO_PIN_SET)
-
-#define WHICH_I2C hi2c1//根据使用的I2C更改
-#define WHICH_SPI hspi2//根据使用的SPI更改
+// 本工程只用 I²C 方式驱动 SSD1306。原来那组 SPI 模式的
+// OLED_DC/CS/SCK/MOSI 宏（PA12/PB12/PB13/PB15）已经删掉——
+// 其中 PB12/PB13 现在是 TB6612 的方向/使能脚，留着容易误用。
+#define WHICH_I2C hi2c1          // 按实际连接的 I²C 改
 #define Max_Column 128
 #define Max_Row    64
 
@@ -77,7 +63,7 @@ void OLED_DrawCircle(uint8_t centerX, uint8_t centerY, uint8_t radius);  //画�
 void OLED_DrawRectangle(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2);  //画矩形
 
 void OLED_DrawChar(uint8_t x, uint8_t y, uint8_t ch, enum Font_Size fontSize,uint8_t Color_Turn);  //画字符
-void OLED_DrawStr(uint8_t x, uint8_t y, uint8_t * ch, enum Font_Size fontSize, uint16_t Color_Turn);  //画字符串
+void OLED_DrawStr(uint8_t x, uint8_t y, const char * ch, enum Font_Size fontSize, uint16_t Color_Turn);  //画字符串
 uint16_t Ten_Exponent(uint8_t exp);
 void OLED_DrawNum(uint8_t x, uint8_t y, uint16_t num, enum Font_Size fontSize, uint16_t Color_Turn);  //画数字
 void OLED_DrawNum0(uint8_t x, uint8_t y, uint16_t num, enum Font_Size fontSize, uint16_t Color_Turn);//一位数的时候强制两位01,02,...,09,10

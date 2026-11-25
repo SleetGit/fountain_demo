@@ -6,7 +6,6 @@
 extern "C"
 {
 #endif
-#include "main.h"
 #include "stm32f1xx_hal.h"
 
 int user_main();

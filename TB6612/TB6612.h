@@ -24,6 +24,7 @@ extern "C" {
 #endif
 
 #include "main.h"
+#include "tim.h"        // TB6612_PWM_TIMER 要用到 htim3
 
 // ============================================================================
 // TB6612 硬件配置 - 必须与 fountain_demo.ioc 中的配置一致

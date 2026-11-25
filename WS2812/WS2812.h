@@ -1,5 +1,5 @@
-#ifndef __WS2812_H
-#define __WS2812_H
+#ifndef WS2812_H
+#define WS2812_H
 #include "main.h"
 
 #define Hight_Data    ( 64  )   // 1 码

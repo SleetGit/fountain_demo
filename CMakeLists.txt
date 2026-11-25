@@ -1,4 +1,4 @@
-#此文件从模板自动生成! 请勿更改!
+# 本文件与 CMakeLists_template.txt 是一对，两边要同步修改（CubeMX 只认模板，本文件实际是手工维护的）。
 set(CMAKE_SYSTEM_NAME Generic)
 set(CMAKE_SYSTEM_VERSION 1)
 cmake_minimum_required(VERSION 4.4)
