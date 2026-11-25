@@ -19,8 +19,14 @@
   *       本驱动只做单方向（水泵），方向脚固定 IN1=1 / IN2=0，
   *       调速只改 PWM 占空比。
   *
-  *       ⚠️ 引脚由驱动自己初始化，不依赖 CubeMX（与 DS1302 驱动一致），
-  *          所以 .ioc 里不用配 PA6/PB11/PB12/PB13。
+  *       ★ 外设初始化全部由 CubeMX 生成的代码完成：
+  *           · MX_TIM3_Init()    → TIM3 时基 PSC=0 / ARR=3599，CH1 PWM1 模式
+  *           · HAL_TIM3_MspInit  → __HAL_RCC_TIM3_CLK_ENABLE()
+  *           · MspPostInit       → PA6 配成 AF_PP（TIM3_CH1）
+  *           · MX_GPIO_Init()    → PB11/PB12/PB13 推挽输出，初值低电平
+  *         本驱动只负责：启动 PWM、控制方向脚与 STBY、换算占空比。
+  *         所以**换引脚或改频率要改 fountain_demo.ioc 并重新生成**，
+  *         再同步修改下面的宏（仅影响宏名，不影响外设配置）。
   */
 
 #ifndef TB6612_H
@@ -33,51 +39,44 @@ extern "C" {
 #include "main.h"
 
 // ============================================================================
-// TB6612 硬件配置 - 使用预处理宏定义（要换引脚只改这里）
+// TB6612 硬件配置 - 必须与 fountain_demo.ioc 中的配置一致
 // ============================================================================
 
-// AIN1 / AIN2 方向脚
+// AIN1 / AIN2 方向脚（ioc: PB11 / PB12 → GPIO_Output）
 #define TB6612_AIN1_PORT         GPIOB
 #define TB6612_AIN1_PIN          GPIO_PIN_11
 
 #define TB6612_AIN2_PORT         GPIOB
 #define TB6612_AIN2_PIN          GPIO_PIN_12
 
-// STBY 使能脚（高电平 = 正常工作，低电平 = 待机）
+// STBY 使能脚（ioc: PB13 → GPIO_Output）
 // 如果模块把 STBY 直接接到 3.3V，可以把 TB6612_USE_STBY 改成 0
 #define TB6612_USE_STBY          1
 #define TB6612_STBY_PORT         GPIOB
 #define TB6612_STBY_PIN          GPIO_PIN_13
 
-// PWM：TIM3_CH1 = PA6（TIM1 已被 WS2812 占用，TIM4 是 1 ms 节拍）
-#define TB6612_PWM_TIMER         (&htim3_tb6612)
+// PWM：TIM3_CH1 = PA6（ioc: TIM3 通道1，PSC=0，ARR=3600-1 → 20 kHz）
+// htim3 由 CubeMX 在 Core/Src/tim.c 中定义，这里直接引用
+#define TB6612_PWM_TIMER         (&htim3)
 #define TB6612_PWM_CHANNEL       TIM_CHANNEL_1
-
-// 计数时钟 72 MHz / (PSC+1) / (ARR+1) = 72M/(0+1)/(3599+1) = 20 kHz
-#define TB6612_PWM_PRESCALER     0u
-#define TB6612_PWM_PERIOD        3599u
+#define TB6612_PWM_PERIOD        3599u                              // 与 ioc 的 3600-1 对应
 
 // 占空比 100 对应 CCR = ARR+1，即常高
 #define TB6612_PWM_MAX_VALUE     (TB6612_PWM_PERIOD + 1u)
-#define TB6612_PWM_RESOLUTION    (TB6612_PWM_MAX_VALUE / 100u)   // 36
+#define TB6612_PWM_RESOLUTION    (TB6612_PWM_MAX_VALUE / 100u)      // 36
 
 // 单方向：水泵只能往一个方向抽水，方向脚固定成这一组
 #define TB6612_DIR_AIN1_SET      GPIO_PIN_SET
 #define TB6612_DIR_AIN2_SET      GPIO_PIN_RESET
 
 // ============================================================================
-// 对外句柄（PWM 定时器由驱动内部创建并初始化）
-// ============================================================================
-
-extern TIM_HandleTypeDef htim3_tb6612;
-
-// ============================================================================
 // 驱动函数声明
 // ============================================================================
 
 /**
-  * @brief  初始化 TB6612：配置 AIN1/AIN2/STBY 推挽输出 + TIM3_CH1 20 kHz PWM
-  * @note   初始化完成后电机处于停止状态；重复调用是安全的
+  * @brief  启动 PWM 并把电机置为停止状态
+  * @note   引脚的 GPIO 方向与 TIM3 时基已由 CubeMX 的 MX_GPIO_Init / MX_TIM3_Init 完成，
+  *         本函数只启动 PWM 输出、把方向脚与 PWMA 清零。重复调用安全。
   */
 void TB6612_Init(void);
 

@@ -3,6 +3,9 @@
   * @brief TB6612FNG 直流电机底层驱动（水泵专用，单方向）
   * @author SleetGit
   * @date 2026/11/25
+  *
+  * @note 外设初始化由 CubeMX 生成的代码负责（见 TB6612.h 顶部说明），
+  *       本文件只做：启动 PWM、方向与使能脚控制、占空比换算。
   */
 
 #include "TB6612.h"
@@ -11,10 +14,7 @@
 // 内部变量
 // ============================================================================
 
-/* PWM 定时器句柄：TIM3 在 CubeMX 里没有配置，由本驱动自己建 */
-TIM_HandleTypeDef htim3_tb6612;
-
-static uint8_t s_inited = 0;   // 1 = 已初始化
+static uint8_t s_inited = 0;   // 1 = PWM 已启动
 static int     s_duty   = 0;   // 当前占空比 0~100
 
 // ============================================================================
@@ -49,67 +49,19 @@ static void dir_set_forward(void)
 
 void TB6612_Init(void)
 {
-    GPIO_InitTypeDef GPIO_InitStruct = {0};
+    // 引脚方向（PB11/PB12/PB13 推挽输出）已在 MX_GPIO_Init() 里配好，
+    // 且初值为低电平（STBY 低 = 待机），所以上电瞬间电机不会动。
 
-    // ---------------- 1. 方向脚 + STBY ----------------
-    __HAL_RCC_GPIOB_CLK_ENABLE();
-
-    GPIO_InitStruct.Pin   = TB6612_AIN1_PIN | TB6612_AIN2_PIN;
-    GPIO_InitStruct.Mode  = GPIO_MODE_OUTPUT_PP;
-    GPIO_InitStruct.Pull  = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-    HAL_GPIO_Init(TB6612_AIN1_PORT, &GPIO_InitStruct);
-
-#if TB6612_USE_STBY
-    GPIO_InitStruct.Pin = TB6612_STBY_PIN;
-    HAL_GPIO_Init(TB6612_STBY_PORT, &GPIO_InitStruct);
-    // 先拉低进入待机，等 PWM 配好再使能，避免上电瞬间抽一下
-    HAL_GPIO_WritePin(TB6612_STBY_PORT, TB6612_STBY_PIN, GPIO_PIN_RESET);
-#endif
+    // 启动 TIM3_CH1 的 PWM 输出（时基与通道已在 MX_TIM3_Init() 里配好）
+    HAL_TIM_PWM_Start(TB6612_PWM_TIMER, TB6612_PWM_CHANNEL);
+    __HAL_TIM_SET_COMPARE(TB6612_PWM_TIMER, TB6612_PWM_CHANNEL, 0);
 
     // 初始：滑行停止
     HAL_GPIO_WritePin(TB6612_AIN1_PORT, TB6612_AIN1_PIN, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(TB6612_AIN2_PORT, TB6612_AIN2_PIN, GPIO_PIN_RESET);
 
-    // ---------------- 2. PWM 引脚 PA6 = TIM3_CH1 ----------------
-    __HAL_RCC_GPIOA_CLK_ENABLE();
-
-    GPIO_InitStruct.Pin   = GPIO_PIN_6;
-    GPIO_InitStruct.Mode  = GPIO_MODE_AF_PP;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-    // ---------------- 3. TIM3 时基 + PWM 通道 ----------------
-    __HAL_RCC_TIM3_CLK_ENABLE();
-
-    htim3_tb6612.Instance               = TIM3;
-    htim3_tb6612.Init.Prescaler         = TB6612_PWM_PRESCALER;
-    htim3_tb6612.Init.CounterMode       = TIM_COUNTERMODE_UP;
-    htim3_tb6612.Init.Period            = TB6612_PWM_PERIOD;
-    htim3_tb6612.Init.ClockDivision     = TIM_CLOCKDIVISION_DIV1;
-    htim3_tb6612.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
-    if (HAL_TIM_PWM_Init(&htim3_tb6612) != HAL_OK) {
-        s_inited = 0;
-        return;
-    }
-
-    TIM_OC_InitTypeDef sConfigOC = {0};
-    sConfigOC.OCMode     = TIM_OCMODE_PWM1;
-    sConfigOC.Pulse      = 0;
-    sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-    sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-    if (HAL_TIM_PWM_ConfigChannel(&htim3_tb6612, &sConfigOC, TB6612_PWM_CHANNEL) != HAL_OK) {
-        s_inited = 0;
-        return;
-    }
-
-    HAL_TIM_PWM_Start(TB6612_PWM_TIMER, TB6612_PWM_CHANNEL);
-    __HAL_TIM_SET_COMPARE(TB6612_PWM_TIMER, TB6612_PWM_CHANNEL, 0);
-
-    // ---------------- 4. 使能输出 ----------------
-#if TB6612_USE_STBY
-    HAL_GPIO_WritePin(TB6612_STBY_PORT, TB6612_STBY_PIN, GPIO_PIN_SET);
-#endif
+    // 使能输出
+    TB6612_Enable(1);
 
     s_duty   = 0;
     s_inited = 1;

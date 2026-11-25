@@ -74,6 +74,10 @@ PA8 ──TIM1_CH1 PWM──▶ DMA1_CH2 ──▶ WS2812 ×30 ◀── WS2812_
 | **PB11** | GPIO 推挽输出 | **TB6612 `AIN1`** | 单方向：固定输出高 |
 | **PB12** | GPIO 推挽输出 | **TB6612 `AIN2`** | 单方向：固定输出低 |
 | **PB13** | GPIO 推挽输出 | **TB6612 `STBY`** | 高电平使能，低电平待机 |
+
+> 以上 4 个脚和 TIM3 全部在 **CubeMX 里配置**（`fountain_demo.ioc`），生成代码负责：
+> `MX_TIM3_Init()` 配 PSC=0 / ARR=3600-1，`HAL_TIM3_MspInit()` 开 TIM3 时钟，
+> `HAL_TIM_MspPostInit()` 把 PA6 配成 AF_PP，`MX_GPIO_Init()` 把 PB11/PB12/PB13 配成推挽输出且初值低电平。
 | **PB6 / PB7** | I²C1 SCL / SDA，开漏 | SSD1306 OLED | 400 kHz，7 位地址 `0x78` |
 | **PB9** | GPIO 输入（无上下拉） | 光强 / 开关量输入 | 见下方注意事项 |
 | **PC13** | GPIO 推挽输出 | 板载 LED（低电平点亮） | 200 ms 翻转 |
@@ -202,7 +206,7 @@ main()                          Core/Src/main.c
      │   ├─ delay_init(72)                         ★ 必须排在 DS1302_Init() 前面
      │   ├─ DS1302_Init()                          自配 PB0/PB1/PB10，不依赖 CubeMX
      │   ├─ DS1302_GetTime(&now_time)              开机先读一次，避免首屏空值
-     │   ├─ TB6612_Init()                          PB11/12/13 + TIM3_CH1(PA6)，初始停机
+     │   ├─ TB6612_Init()                          启动 TIM3_CH1 PWM，初始停机（外设由 CubeMX 配）
      │   ├─ HAL_ADCEx_Calibration_Start(&hadc1)    ADC 自校准
      │   └─ HAL_ADC_Start_DMA(&hadc1, buf, 64)     ADC 连续转换 + 循环 DMA
      └─ while(1) run()          :50
@@ -216,6 +220,9 @@ main()                          Core/Src/main.c
 
 > `DS1302_Init()` 在驱动内部自己配置 GPIO，所以即使 CubeMX 里没有这三个脚，也能正常工作。
 > 但**要换引脚必须两处同时改**：`DS1302.h` 的 `DS1302_xxx_PIN/PORT` 宏，以及 `fountain_demo.ioc`。
+>
+> 水泵这边反过来：**外设全部由 CubeMX 生成**（TIM3 + PA6/PB11/PB12/PB13），
+> 驱动只启动 PWM 和控制电平。换引脚要改 `fountain_demo.ioc` 重新生成，再同步 `TB6612.h` 的宏名。
 
 ---
 
