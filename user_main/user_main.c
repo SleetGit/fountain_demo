@@ -32,16 +32,17 @@ uint8_t rtc_status = DS1302_OK;                        // DS1302_OK / DS1302_ERR
  * ------------------------------------------------------- */
 #define DS1302_SET_TIME_ON_BOOT 0
 
-/* ---------------- 【水泵自检开关】 ----------------
- *  改成 1：上电后水泵以 PUMP_SELF_TEST_DUTY% 转速运行 PUMP_SELF_TEST_MS 毫秒，
- *          用来验证 TB6612 接线是否正确。
- *  ★ 全程不阻塞：由 flag_100ms 驱动状态机推进，自检期间 OLED 照常刷新、RTC 照常走。
- *    （绝对不要用 delay_ms 等电机动作 —— 主循环一停，屏幕就冻结了）
- *  验证完把 PUMP_SELF_TEST 改回 0 即可，平时保持 0，水泵不动作。
+/* ---------------- 【水泵循环演示开关】 ----------------
+ *  改成 1：上电后水泵循环执行“工作 PUMP_ON_MS 毫秒 → 停 PUMP_OFF_MS 毫秒”，
+ *          默认 5 秒工作 / 5 秒停止，用来验证 TB6612 接线与带载情况。
+ *  ★ 全程不阻塞：由 flag_100ms 驱动状态机推进，抽水期间 OLED 照常刷新、RTC 照常走。
+ *    （绝对不要把电机动作写成 delay_ms —— 主循环一停，屏幕就冻结了）
+ *  不想让它自己抽水就把 PUMP_CYCLE_DEMO 改回 0。
  * ------------------------------------------------------- */
-#define PUMP_SELF_TEST        1
-#define PUMP_SELF_TEST_DUTY   100        // 自检转速 0~100（%）
-#define PUMP_SELF_TEST_MS     5000u      // 自检时长（毫秒）
+#define PUMP_CYCLE_DEMO       1          // 1=开启循环演示  0=关闭
+#define PUMP_CYCLE_DUTY       100        // 工作时的转速 0~100（%）
+#define PUMP_ON_MS            5000u      // 每次工作多久（毫秒）
+#define PUMP_OFF_MS           5000u      // 每次停止多久（毫秒）
 
 
 /**
@@ -60,34 +61,47 @@ int user_main()
 }
 
 /**
-  * @brief 水泵 100 ms 节拍服务（非阻塞）
-  * @note  由 run() 在 flag_100ms 到点时调用一次，所有电机动作都在这里推进状态，
-  *        **不使用 delay_ms**，所以自检期间主循环照常跑、OLED 照常刷新。
-  *        以后要给水泵加别的时序（定时启停、按液位动作）也在这个状态机里扩展。
+  * @brief 水泵循环服务：工作 → 停止 → 工作 ……（非阻塞）
+  * @note  由 run() 在 flag_100ms 到点时调用一次，用 100 ms 拍数计时。
+  *        **不使用 delay_ms**，所以抽水期间主循环照常跑、OLED 照常刷新。
+  *        以后要给水泵加别的时序（按液位动作、手动开关）也在这个状态机里扩展。
   */
 static void pump_100ms_tick(void)
 {
-#if PUMP_SELF_TEST
-    static uint8_t  state   = 0;                    // 0=待启动 1=运行中 2=已完成
-    static uint32_t elapsed = 0;                    // 已运行的 100 ms 节拍数
-    const uint32_t  need    = PUMP_SELF_TEST_MS / 100u;
+#if PUMP_CYCLE_DEMO
+    static uint8_t  state   = 0;                    // 0=待启动 1=工作中 2=停止中
+    static uint32_t elapsed = 0;                    // 当前状态已持续的 100 ms 拍数
+    const uint32_t  on_ticks  = PUMP_ON_MS  / 100u; // 5000ms -> 50 拍
+    const uint32_t  off_ticks = PUMP_OFF_MS / 100u; // 5000ms -> 50 拍
 
     switch (state) {
-    case 0:                                         // 上电后第一拍：启动
-        TB6612_Start(PUMP_SELF_TEST_DUTY);
+    case 0:                                         // 上电后第一拍：开始第一轮"工作"
+        TB6612_Start(PUMP_CYCLE_DUTY);
         elapsed = 0;
         state   = 1;
         break;
 
-    case 1:                                         // 运行中：累计时间，到点停
+    case 1:                                         // 工作中：到时切到停止
         elapsed++;
-        if (elapsed >= need) {
+        if (elapsed >= on_ticks) {
             TB6612_Stop();
-            state = 2;
+            elapsed = 0;
+            state   = 2;
         }
         break;
 
-    default:                                        // 2=已完成，之后不再动作
+    case 2:                                         // 停止中：到时切回工作
+        elapsed++;
+        if (elapsed >= off_ticks) {
+            TB6612_Start(PUMP_CYCLE_DUTY);
+            elapsed = 0;
+            state   = 1;
+        }
+        break;
+
+    default:                                        // 兜底：回到待启动
+        state   = 0;
+        elapsed = 0;
         break;
     }
 #endif
