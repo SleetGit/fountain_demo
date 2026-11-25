@@ -35,7 +35,7 @@ uint8_t rtc_status = DS1302_OK;                        // DS1302_OK / DS1302_ERR
  *  改成 1：上电后水泵以 60% 转速跑 5 秒，用来验证 TB6612 接线是否正确；
  *  验证完改回 0 即可。平时保持 0，水泵不动作。
  * ------------------------------------------------------- */
-#define PUMP_SELF_TEST 0
+#define PUMP_SELF_TEST 1
 
 
 /**
@@ -55,6 +55,8 @@ int user_main()
 
 void run()
 {
+    static uint32_t t_last_oled = 0;
+
     if (flag_1s == 1) {          // 每秒同步一次 RTC（降速后读一次约 6ms，不适合放中断里）
         flag_1s = 0;
         DS1302_Time_t fresh;
@@ -64,7 +66,16 @@ void run()
             now_time = fresh;    // 只有读稳了才更新；读到坏数据就保持上一次的好值，屏上显示 --
         }
     }
-    OLED_Updata();
+
+    /* 屏幕上人眼看 10 Hz 足够。原来每一轮主循环都整屏刷新，一帧要占总线
+     * 几十毫秒、而且是连续 1000 多次 I2C 事务，电机一干扰就整帧报废。
+     * 节流到 100 ms 后，总线占用率降到 1/4 左右，被干扰命中的概率也随之下降。
+     * 注意：HAL_GetTick() 是 32 位毫秒计数，约 49 天回绕一次，
+     *       用"差值 >= 100"的写法在回绕时依然正确。 */
+    if ((HAL_GetTick() - t_last_oled) >= 100U) {
+        t_last_oled = HAL_GetTick();
+        OLED_Updata();
+    }
 }
 /**
  * @brief  更新 WS2812 灯带显示 (前30个灯点亮为绿色)
@@ -168,7 +179,7 @@ void user_main_init()
     // 引脚由驱动自己初始化：PB11=AIN1、PB12=AIN2、PB13=STBY、PA6=TIM3_CH1(PWM)
     TB6612_Init();                            // 初始停机，水泵不动
 #if PUMP_SELF_TEST
-    TB6612_Start(60);                         // 60% 转速自检 5 秒
+    TB6612_Start(100);                         // 60% 转速自检 5 秒
     delay_ms(5000);
     TB6612_Stop();
 #endif

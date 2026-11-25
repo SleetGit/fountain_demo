@@ -14,29 +14,108 @@
 unsigned char OLED_GRAM[128][8];
 
 
-//I2C控制
-void OLED_Write_Byte(uint8_t dat, uint8_t cmd)
+// ============================================================================
+// I2C 抗干扰：限时事务 + 失败统计 + 总线恢复
+// ============================================================================
+
+static volatile uint8_t  s_err_streak  = 0;   // 连续失败次数
+static volatile uint32_t s_err_total   = 0;   // 累计失败次数
+static volatile uint32_t s_recover_cnt = 0;   // 累计恢复次数
+
+/**
+  * @brief 极短的忙等（不依赖 delay_init，OLED_Init 早于 delay_init 也能用）
+  */
+static void oled_short_delay(void)
 {
-    if(cmd == 0) {
-// I2C句柄, OLED屏幕的I2C地址, OLED屏幕的命令字节, 内存地址大小为8位, 要写入的数据, 要写入的数据长度, 超时时间（毫秒）
-        HAL_I2C_Mem_Write(&WHICH_I2C, OLED0561_ADD, I2C_CMD,
-                          I2C_MEMADD_SIZE_8BIT, &dat, 1, 0xffff);
-//        I2C_Start();
-//        I2C_WriteByte(OLED0561_ADD);
-//        // I2C_WriteByte(OLED_ADDR | OLED_WRITE);
-//        I2C_WriteByte(I2C_CMD);
-//        I2C_WriteByte(dat);
-//        I2C_Stop();
-    } else if(cmd == 1){
-        HAL_I2C_Mem_Write(&WHICH_I2C, OLED0561_ADD, I2C_DATA,
-                          I2C_MEMADD_SIZE_8BIT, &dat, 1, 0xffff);
-//        I2C_Start();
-//        I2C_WriteByte(OLED0561_ADD);
-//        // I2C_WriteByte(OLED_ADDR | OLED_WRITE);
-//        I2C_WriteByte(I2C_DATA);
-//        I2C_WriteByte(dat);
-//        I2C_Stop();
+    for (volatile uint32_t i = 0; i < 120; i++) {
+        __NOP();
     }
+}
+
+/**
+  * @brief I2C 总线恢复
+  * @note  电机干扰常让从机（SSD1306）在传输出错后一直拉住 SDA，
+  *        此时主机再怎么发 START 都没用，必须手动打时钟让它松手：
+  *          1. 关掉 I2C 外设，把 SCL/SDA 切成开漏 GPIO
+  *          2. SDA 保持高，SCL 打 9 个脉冲（最多 9 个就够把 8 bit 甩完）
+  *          3. 手工产生一个 STOP（SCL 高时 SDA 由低变高）
+  *          4. 重新初始化 I2C1，MspInit 会把 PB6/PB7 配回 AF_OD
+  */
+void OLED_I2C_Recover(void)
+{
+    GPIO_InitTypeDef gpio = {0};
+    uint8_t i;
+
+    HAL_I2C_DeInit(&WHICH_I2C);
+
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+    gpio.Pin   = GPIO_PIN_6 | GPIO_PIN_7;      // PB6=SCL, PB7=SDA
+    gpio.Mode  = GPIO_MODE_OUTPUT_OD;          // 开漏，靠外部/内部上拉拉高
+    gpio.Pull  = GPIO_PULLUP;
+    gpio.Speed = GPIO_SPEED_FREQ_HIGH;
+    HAL_GPIO_Init(GPIOB, &gpio);
+
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_7, GPIO_PIN_SET);   // 释放 SDA
+
+    for (i = 0; i < 9; i++) {                  // 9 个 SCL 时钟
+        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_RESET);
+        oled_short_delay();
+        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_SET);
+        oled_short_delay();
+    }
+
+    // 手工 STOP：SCL 高电平期间 SDA 由低变高
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_7, GPIO_PIN_RESET);
+    oled_short_delay();
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_SET);
+    oled_short_delay();
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_7, GPIO_PIN_SET);
+    oled_short_delay();
+
+    MX_I2C1_Init();                            // 恢复 AF_OD 与 400 kHz
+
+    s_err_streak = 0;
+    s_recover_cnt++;
+}
+
+/**
+  * @brief 一次 I2C 事务（带超时与自动恢复）
+  * @param ctrl 控制字节：I2C_CMD(0x00) 写命令 / I2C_DATA(0x40) 写数据
+  * @param buf  数据指针
+  * @param len  字节数
+  * @return HAL_OK 成功，其余为失败
+  */
+static HAL_StatusTypeDef oled_i2c_write(uint8_t ctrl, const uint8_t *buf, uint16_t len)
+{
+    HAL_StatusTypeDef st;
+
+    st = HAL_I2C_Mem_Write(&WHICH_I2C, OLED0561_ADD, ctrl,
+                           I2C_MEMADD_SIZE_8BIT,
+                           (uint8_t *) buf, len,
+                           OLED_I2C_TIMEOUT_MS);
+
+    if (st == HAL_OK) {
+        s_err_streak = 0;
+    } else {
+        if (s_err_streak < 0xFF) s_err_streak++;
+        s_err_total++;
+        if (s_err_streak >= OLED_I2C_ERR_LIMIT) {
+            OLED_I2C_Recover();       // 连续失败，认为总线被拉死
+        }
+    }
+    return st;
+}
+
+uint8_t  OLED_GetErrStreak(void)    { return s_err_streak; }
+uint32_t OLED_GetErrTotal(void)     { return s_err_total; }
+uint32_t OLED_GetRecoverCount(void) { return s_recover_cnt; }
+
+//I2C控制：发一个字节（超时 10 ms，失败不再阻塞主循环）
+void OLED_Write_Byte(unsigned char dat, unsigned char cmd)
+{
+    uint8_t ctrl = (cmd == Write_CMD) ? I2C_CMD : I2C_DATA;
+    (void) oled_i2c_write(ctrl, &dat, 1);
 }
 
 /*
@@ -143,15 +222,41 @@ void OLED_Fill(uint32_t fill_Data)
 /**
  * @brief  更新显存到oled
  */
+/**
+  * @brief 把一页（8 行像素 = 128 字节）整块发给屏
+  * @note  OLED_GRAM[128][8] 是"列优先"存储，同一页的 128 字节并不连续，
+  *        所以先拷进临时缓冲区再一次性发。一页 2 次事务（先地址、后数据），
+  *        8 页共 16 次；原来是 1034 次单字节事务，被干扰打断的窗口小两个数量级。
+  * @return 1 成功，0 失败
+  */
+static uint8_t oled_write_page(uint8_t page)
+{
+    uint8_t  cmds[3];
+    static uint8_t pagebuf[128];
+    uint16_t x;
+
+    cmds[0] = (uint8_t) (0xB0 | page);   // 页地址 0~7
+    cmds[1] = 0x00;                      // 列地址低 4 位
+    cmds[2] = 0x10;                      // 列地址高 4 位
+    if (oled_i2c_write(I2C_CMD, cmds, 3) != HAL_OK) return 0;
+
+    for (x = 0; x < 128; x++) {
+        pagebuf[x] = OLED_GRAM[x][page];
+    }
+    if (oled_i2c_write(I2C_DATA, pagebuf, 128) != HAL_OK) return 0;
+
+    return 1;
+}
+
 void OLED_Refresh_Gram(void)
 {
-    uint8_t x, y;
-    OLED_Write_Byte(0x00, Write_CMD);		//设置显示位置—列低地址
-    OLED_Write_Byte(0x10, Write_CMD);		//设置显示位置—列高地址
-    for(y=0;y<8;y++) {  //循环8次，就会刷新8页
-        OLED_Write_Byte(0xb0 + y, Write_CMD);   //设置页地址（0~7）
-        for(x=0;x<128;x++) {
-            OLED_Write_Byte(OLED_GRAM[x][y], Write_DATA);
+    uint8_t page;
+
+    for (page = 0; page < 8; page++) {
+        if (!oled_write_page(page)) {
+            // 本帧放弃：最多卡 OLED_I2C_TIMEOUT_MS，下一帧继续刷，
+            // 不会再出现"屏幕冻结几十秒、LED 还在闪"的现象
+            return;
         }
     }
 }
